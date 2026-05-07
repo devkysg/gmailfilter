@@ -1,0 +1,18 @@
+[Unit]
+Description=Gmail Filter Watcher (AI-powered)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kysg
+WorkingDirectory=/home/kysg/projects/gmailfilter
+ExecStart=/home/kysg/projects/gmailfilter/venv/bin/python watcher.py
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+Environment=ANTHROPIC_API_KEY_FILE=/home/kysg/.config/gmailfilter/api_key
+
+[Install]
+WantedBy=multi-user.target

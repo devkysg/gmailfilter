@@ -1,0 +1,75 @@
+accounts:
+  - name: sugiura
+    credentials: credentials/sugiura.json
+    token: tokens/sugiura.token
+    label_prefix: ""          # ラベルプレフィックス（複数アカウント時に識別用）
+
+rules:
+  - name: "重要取引先"
+    match:
+      from: []                # 例: ["@important-client.com", "boss@example.jp"]
+    action:
+      label: "filter/重要"
+      notify: true
+    skip_ai: true
+
+  - name: "ニュースレター"
+    match:
+      subject_contains: ["unsubscribe", "配信停止", "メールマガジン", "newsletter"]
+      header_list_unsubscribe: true
+    action:
+      label: "Newsletter"
+      mark_read: true
+    skip_ai: true
+
+  - name: "注文・配送通知"
+    match:
+      from: ["@amazon.co.jp", "@yamato-hd.co.jp", "@post.japanpost.jp"]
+      subject_contains: ["発送", "配達", "ご注文", "お届け"]
+    action:
+      label: "配送"
+    skip_ai: true
+
+  - name: "GitHub通知"
+    match:
+      from: ["notifications@github.com"]
+    action:
+      label: "GitHub"
+      mark_read: true
+    skip_ai: true
+
+  - name: "DMARCレポート"
+    match:
+      subject_contains: ["DMARC", "Report Domain", "Report domain"]
+    action:
+      label: "filter/DMARC"
+      mark_read: true
+    skip_ai: true
+
+ai:
+  enabled: true
+  model: claude-haiku-4-5-20251001
+  max_tokens: 256
+  cache_ttl_days: 7
+  # AI判定を呼ぶ条件: 上記ルールに一致しないメール
+  notify_on_important: true   # AIが「重要」と判定したら通知
+
+notify:
+  discord:
+    enabled: false
+    webhook_url: ""           # Discord Webhook URL を設定
+  google_chat:
+    enabled: true
+    webhook_url: ""  # Google Chat Webhook URL を設定 # Google Chat Webhook URL を設定
+
+polling:
+  interval_seconds: 300       # 5分ポーリング
+  max_results: 50             # 1回あたり取得件数上限
+
+redis:
+  enabled: false              # rspamd Redis と共有する場合は true
+  host: localhost
+  port: 6379
+  db: 1                       # rspamd は db:0 を使うため db:1 で分離
+  key_prefix: "gmail:"
+  ttl_seconds: 604800         # 7日

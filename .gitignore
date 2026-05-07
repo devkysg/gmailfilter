@@ -1,0 +1,9 @@
+credentials/
+tokens/
+venv/
+__pycache__/
+*.pyc
+processed_ids.txt
+/var/log/gmailfilter.log
+.env
+config.yaml
