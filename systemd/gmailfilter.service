@@ -12,7 +12,7 @@ Restart=on-failure
 RestartSec=30
 StandardOutput=journal
 StandardError=journal
-Environment=ANTHROPIC_API_KEY_FILE=/home/kysg/.config/gmailfilter/api_key
+EnvironmentFile=/home/kysg/.config/gmailfilter/api_key
 
 [Install]
 WantedBy=multi-user.target
