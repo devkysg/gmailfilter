@@ -101,7 +101,7 @@ class AIJudge:
     def _call_openai(self, user_content: str) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
-            max_tokens=self.max_tokens,
+            max_completion_tokens=self.max_tokens,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": user_content},
