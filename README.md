@@ -1,6 +1,8 @@
 # gmailfilter
 
-Gmail の受信トレイを **宣言的YAMLルール + Claude Haiku AI** で自動フィルタリングし、Discord / Google Chat へ重要メールを通知する Python サービスです。VPS 上で systemd サービスとして動作します。
+Gmail の受信トレイを **宣言的YAMLルール + AI** で自動フィルタリングし、Discord / Google Chat へ重要メールを通知する Python サービスです。VPS 上で systemd サービスとして動作します。
+
+AI プロバイダーは **Anthropic（Claude Haiku）** と **OpenAI（GPT シリーズ）** を `config.yaml` の1行変更で切り替えられます。
 
 ## アーキテクチャ
 
@@ -13,7 +15,7 @@ Gmail API (5分ポーリング)
     ├─ 即決ルール (From/件名/ヘッダ) → actions.py → Gmailラベル付け
     └─ ルール未一致 → ai_judge.py
                          ↓
-                   Claude Haiku API (Anthropic)
+                   AI API（Anthropic または OpenAI）
                    ┌─ importance: high → filter/AI-high ラベル + 通知
                    ├─ importance: medium → ラベルなし
                    └─ importance: low  → filter/AI-low ラベル + 既読化
@@ -105,14 +107,36 @@ notify:
 
 ### AI設定
 
+`provider` で Anthropic / OpenAI を切り替えられます。
+
 ```yaml
+# Anthropic（デフォルト）
 ai:
   enabled: true
+  provider: anthropic
   model: claude-haiku-4-5-20251001
   max_tokens: 256
   cache_ttl_days: 7        # 同一メールの重複判定をRedisでキャッシュ
   notify_on_important: true
 ```
+
+```yaml
+# OpenAI に切り替える場合
+ai:
+  enabled: true
+  provider: openai
+  model: gpt-4o-mini       # gpt-5-nano-2025-08-07 なども指定可
+  max_tokens: 256
+  cache_ttl_days: 7
+  notify_on_important: true
+```
+
+OpenAI を使う場合は `~/.config/gmailfilter/api_key` に `OPENAI_API_KEY=sk-...` を追加してサービスを再起動してください。
+
+| プロバイダー | プロンプトキャッシュ | 備考 |
+|---|---|---|
+| Anthropic (Claude) | あり（コスト削減効果大） | デフォルト推奨 |
+| OpenAI (GPT) | なし | Redisキャッシュは両方で有効 |
 
 ---
 
