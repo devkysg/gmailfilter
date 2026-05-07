@@ -48,10 +48,13 @@ rules:
 
 ai:
   enabled: true
+  provider: anthropic             # anthropic または openai
   model: claude-haiku-4-5-20251001
+  # OpenAI を使う場合の例:
+  # provider: openai
+  # model: gpt-4o-mini
   max_tokens: 256
   cache_ttl_days: 7
-  # AI判定を呼ぶ条件: 上記ルールに一致しないメール
   notify_on_important: true   # AIが「重要」と判定したら通知
 
 notify:

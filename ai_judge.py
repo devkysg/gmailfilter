@@ -1,10 +1,7 @@
 import hashlib
 import json
 import logging
-import os
 from typing import Optional
-
-import anthropic
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +21,43 @@ SYSTEM_PROMPT = """あなたはメール分類AIです。受け取ったメー�
 - importance=low: ニュースレター、通知、広告など
 - notify=true: importance=high かつ即時対応が必要な場合のみ"""
 
+FALLBACK_RESULT = {
+    "importance": "medium",
+    "category": "other",
+    "notify": False,
+    "reason": "判定失敗",
+}
+
+
+def _strip_code_block(text: str) -> str:
+    if text.startswith("```"):
+        text = text.split("```", 2)[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return text.strip()
+
 
 class AIJudge:
     def __init__(self, config: dict, redis_client=None):
-        self.config = config.get("ai", {})
-        self.model = self.config.get("model", "claude-haiku-4-5-20251001")
-        self.max_tokens = self.config.get("max_tokens", 256)
+        ai_cfg = config.get("ai", {})
+        self.provider = ai_cfg.get("provider", "anthropic").lower()
+        self.model = ai_cfg.get("model", "claude-haiku-4-5-20251001")
+        self.max_tokens = ai_cfg.get("max_tokens", 256)
         self.redis = redis_client
-        self.ttl = self.config.get("cache_ttl_days", 7) * 86400
+        self.ttl = ai_cfg.get("cache_ttl_days", 7) * 86400
         self.key_prefix = config.get("redis", {}).get("key_prefix", "gmail:")
-        self.client = anthropic.Anthropic()
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            if self.provider == "openai":
+                from openai import OpenAI
+                self._client = OpenAI()
+            else:
+                import anthropic
+                self._client = anthropic.Anthropic()
+        return self._client
 
     def _cache_key(self, message_id: str) -> str:
         h = hashlib.sha256(message_id.encode()).hexdigest()[:16]
@@ -59,15 +83,7 @@ class AIJudge:
         except Exception as e:
             logger.warning("Redis set error: %s", e)
 
-    def judge(self, msg) -> dict:
-        cached = self._get_cache(msg.message_id)
-        if cached:
-            return cached
-
-        user_content = f"""件名: {msg.subject}
-送信者: {msg.sender}
-本文（抜粋）: {msg.snippet[:500]}"""
-
+    def _call_anthropic(self, user_content: str) -> str:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -75,33 +91,50 @@ class AIJudge:
                 {
                     "type": "text",
                     "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},  # プロンプトキャッシュ
+                    "cache_control": {"type": "ephemeral"},
                 }
             ],
             messages=[{"role": "user", "content": user_content}],
         )
+        return response.content[0].text.strip()
 
-        raw = response.content[0].text.strip()
-        # コードブロック(```json ... ```)を除去
-        if raw.startswith("```"):
-            raw = raw.split("```", 2)[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
+    def _call_openai(self, user_content: str) -> str:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_content},
+            ],
+        )
+        return response.choices[0].message.content.strip()
+
+    def judge(self, msg) -> dict:
+        cached = self._get_cache(msg.message_id)
+        if cached:
+            return cached
+
+        user_content = f"件名: {msg.subject}\n送信者: {msg.sender}\n本文（抜粋）: {msg.snippet[:500]}"
+
+        try:
+            if self.provider == "openai":
+                raw = self._call_openai(user_content)
+            else:
+                raw = self._call_anthropic(user_content)
+        except Exception as e:
+            logger.error("AI API error (%s): %s", self.provider, e)
+            return {**FALLBACK_RESULT, "summary": msg.snippet[:30]}
+
+        raw = _strip_code_block(raw)
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
             logger.warning("AI returned non-JSON: %s", raw)
-            result = {
-                "importance": "medium",
-                "category": "other",
-                "summary": msg.snippet[:30],
-                "notify": False,
-                "reason": "判定失敗",
-            }
+            result = {**FALLBACK_RESULT, "summary": msg.snippet[:30]}
 
         logger.info(
-            "AI judge: [%s] %s -> importance=%s notify=%s",
+            "AI judge [%s]: [%s] %s -> importance=%s notify=%s",
+            self.provider,
             msg.gmail_id,
             msg.subject[:40],
             result.get("importance"),
