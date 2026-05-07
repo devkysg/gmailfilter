@@ -267,6 +267,92 @@ venv/bin/python rule_engine.py "件名テスト" "sender@example.com"
 rm processed_ids.txt && sudo systemctl restart gmailfilter
 ```
 
+## デプロイ方式の比較：venv + systemd vs Docker
+
+本プロジェクトは現在 **venv + systemd** で稼働していますが、Docker化も可能です。  
+それぞれのメリット・デメリットを整理します。
+
+### venv + systemd（現在の構成）
+
+```
+/home/kysg/projects/gmailfilter/
+└── venv/        ← Python 依存関係
+systemd/gmailfilter.service  ← プロセス管理
+```
+
+| | 内容 |
+|---|---|
+| **メリット** | セットアップがシンプル（`setup.sh` 1本）|
+| | systemd が自動再起動・ログ管理を担う |
+| | メモリ消費が最小（~55MB、Dockerオーバーヘッドなし）|
+| | OAuth認証フローがそのまま動く |
+| | 設定変更 → `systemctl restart` だけで反映 |
+| **デメリット** | Pythonバージョンや依存関係がOS環境に依存する |
+| | 複数サーバーへの展開時に手順が増える |
+| | 他サービスとの依存関係を個別に管理する必要がある |
+
+### Docker + docker-compose
+
+```
+docker-compose.yml
+├── image: gmailfilter
+├── volumes: ./credentials, ./tokens, ./config.yaml
+└── env: ANTHROPIC_API_KEY
+```
+
+| | 内容 |
+|---|---|
+| **メリット** | 依存関係をコンテナに完全封じ込め（OS非依存）|
+| | VPS上の他のDockerサービス（n8n等）と統一管理できる |
+| | `docker compose up -d` だけでどこでも起動できる |
+| | イメージをバージョン管理でき、ロールバックが容易 |
+| **デメリット** | OAuth初回認証だけはホスト側で事前実行が必要（ブラウザ操作のため）|
+| | Docker自体のオーバーヘッド（+20〜30MB程度）|
+| | `credentials/`・`tokens/`・`config.yaml` のvolume管理が必要 |
+| | ログが `journalctl` から `docker logs` に変わる |
+
+### どちらを選ぶか
+
+```
+既存のDockerサービスが多い → Docker の方が統一管理しやすい
+このサービス単体で運用   → venv + systemd がシンプルで十分
+複数のVPSに展開したい   → Docker の方が再現性が高い
+```
+
+現状（VPS 1台・単一サービス）では **venv + systemd で十分**です。  
+n8n等のDockerサービスと並べて管理したくなった時点でDocker化を検討するのが現実的です。
+
+### Docker化する場合の構成イメージ
+
+OAuth認証（初回のみホスト側で実行）→ 生成された `tokens/` をマウントして起動。
+
+```yaml
+# docker-compose.yml（参考）
+services:
+  gmailfilter:
+    build: .
+    restart: unless-stopped
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - ./credentials:/app/credentials:ro
+      - ./tokens:/app/tokens
+      - ./config.yaml:/app/config.yaml:ro
+      - ./processed_ids.txt:/app/processed_ids.txt
+```
+
+```dockerfile
+# Dockerfile（参考）
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY *.py ./
+CMD ["python", "watcher.py"]
+```
+
+---
+
 ## セキュリティ注意事項
 
 - `credentials/` と `tokens/` は **絶対にgitにコミットしない**（`.gitignore` で除外済み）
